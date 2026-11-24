@@ -135,6 +135,18 @@ class BridgeServer:
                 try:
                     if method == "GET" and parts == ["status"]:
                         return self._send(200, bridge.status_payload())
+                    if method == "GET" and parts == ["history"]:
+                        raw_limit = query.get("limit", ["100"])[0]
+                        try:
+                            limit = int(raw_limit)
+                        except ValueError:
+                            return self._send(400, {"ok": False, "error": "invalid_limit"})
+                        limit = max(1, min(500, limit))
+                        records = bridge.store.list_undo_records(limit=limit)
+                        return self._send(200, {
+                            "ok": True,
+                            "history": [r.model_dump() for r in records],
+                        })
                     if method == "GET" and parts == ["destinations"]:
                         return self._send(200, {"ok": True, "destinations": [
                             d.model_dump() for d in bridge.settings.destinations]})

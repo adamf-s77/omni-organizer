@@ -19,7 +19,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from models import V3Settings  # noqa: E402
-from paths import DESKTOP_PROMPT_LOCK, DESKTOP_PROMPT_PY, PYTHONW_EXE  # noqa: E402
+from paths import CONTROL_DASHBOARD_PY, DESKTOP_PROMPT_LOCK, DESKTOP_PROMPT_PY, PYTHONW_EXE  # noqa: E402
 from settings import ensure_bridge_token, load_v3_settings  # noqa: E402
 
 _LAUNCH_LOCK = threading.Lock()
@@ -105,6 +105,17 @@ def release_prompt_lock(lock_file: Path = DESKTOP_PROMPT_LOCK) -> None:
         pass
 
 
+def _spawn_detached(cmd: list[str]) -> None:
+    """Spawn a GUI helper process detached from the caller window/shell."""
+    kwargs: dict[str, Any] = {"cwd": str(SRC_DIR.parent), "close_fds": True}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NO_WINDOW
+            | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+        )
+    subprocess.Popen(cmd, **kwargs)
+
+
 def launch_desktop_prompt_if_needed(
     settings: V3Settings,
     logger: Callable[[str], None] | None = None,
@@ -132,13 +143,7 @@ def launch_desktop_prompt_if_needed(
         if spawner is not None:
             spawner(cmd)
         else:
-            kwargs: dict[str, Any] = {"close_fds": True}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = (
-                    subprocess.CREATE_NO_WINDOW
-                    | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-                )
-            subprocess.Popen(cmd, cwd=str(SRC_DIR.parent), **kwargs)
+            _spawn_detached(cmd)
         if logger:
             logger("[ui] 已喚起桌面審核彈窗 (desktop_prompt.py)")
         return True
@@ -670,6 +675,16 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
             status_var.set(f"還原失敗：{res.get('error', 'unknown')}")
         refresh_data(manual=False)
 
+    def on_open_dashboard() -> None:
+        cmd = [str(PYTHONW_EXE), str(CONTROL_DASHBOARD_PY)]
+        if isinstance(client, DemoBridgeClient):
+            cmd.append("--demo")
+        try:
+            _spawn_detached(cmd)
+            status_var.set("已開啟圖形化控制平台")
+        except Exception as exc:
+            status_var.set(f"開啟控制平台失敗：{type(exc).__name__}")
+
     btn_accept.config(command=lambda: run_decision("accept"))
     btn_remember.config(command=lambda: run_decision("accept_and_remember", remember=True))
     btn_ignore.config(command=lambda: run_decision("ignore"))
@@ -677,8 +692,10 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
     btn_browse.config(command=on_browse)
     btn_choose.config(command=on_choose)
     btn_undo.config(command=on_undo)
+    btn_dashboard = ttk.Button(hdr, text="⚙️ 控制平台", command=on_open_dashboard)
+    btn_dashboard.pack(side="right", padx=(0, 6))
     btn_refresh = ttk.Button(hdr, text="🔄 重新整理", command=lambda: refresh_data(manual=True))
-    btn_refresh.pack(side="right", padx=(0, 8))
+    btn_refresh.pack(side="right", padx=(0, 6))
 
     refresh_data(manual=False)
     root.mainloop()

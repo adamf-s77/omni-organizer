@@ -54,10 +54,11 @@ flowchart LR
    ```powershell
    python src\desktop_prompt.py --demo
    ```
-4. **啟動背景監聽服務**
+4. **啟動背景監聽服務與控制平台**
    - 前景測試執行：`python src\watcher.py`
    - 安裝 Windows 登入自動靜默背景執行：`powershell -ExecutionPolicy Bypass -File scripts\install_user_task.ps1`
-   - 開啟互動式控制選單：雙擊 `launch_control_center.bat`
+   - 圖形化控制平台（歷史移動紀錄＋立即掃描）：雙擊 `launch_dashboard.bat`（或 `python src\control_dashboard.py --demo`）
+   - 開啟終端機控制選單：雙擊 `launch_control_center.bat`
 
 ## AI 模型支援
 

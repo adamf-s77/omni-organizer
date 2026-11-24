@@ -22,6 +22,7 @@ for p in (OMNI_SRC, DISCORD_INT):
 import desktop_prompt  # noqa: E402
 import guardrails  # noqa: E402
 from bridge_api import BridgeServer  # noqa: E402
+from control_dashboard import DashboardBridgeClient, DemoDashboardClient  # noqa: E402
 from decision_engine import DecisionEngine  # noqa: E402
 from desktop_prompt import (  # noqa: E402
     DesktopBridgeClient,
@@ -417,6 +418,77 @@ class TestBridgeAndCog(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res["enqueued"], 1)
         self.assertEqual(res["pruned_missing"], 0)
         self.assertEqual(res["pending_count"], 0)
+
+    def test_history_endpoint_and_dashboard_client(self) -> None:
+        hdrs = {"Authorization": f"Bearer {self.token}"}
+        # Auth & limit validation on /history
+        self.assertEqual(httpx.get(f"{self.base_url}/history", timeout=3.0).status_code, 401)
+        self.assertEqual(
+            httpx.get(f"{self.base_url}/history?limit=abc", headers=hdrs, timeout=3.0).status_code,
+            400,
+        )
+
+        # Move two files sequentially so history has newest-first ordering
+        f1 = self.desktop / "hist_one.pdf"
+        f2 = self.desktop / "hist_two.pdf"
+        f1.write_text("first file", encoding="utf-8")
+        f2.write_text("second file", encoding="utf-8")
+
+        p1 = self.engine.process_file(f1)
+        p2 = self.engine.process_file(f2)
+        dash = DashboardBridgeClient(self.base_url, self.token)
+
+        d1 = self.engine.apply_decision(
+            desktop_prompt_decision := __import__("models").DecisionPayload(
+                pending_id=p1["pending_id"], action="accept_and_remember"
+            )
+        )
+        d2 = self.engine.apply_decision(
+            __import__("models").DecisionPayload(
+                pending_id=p2["pending_id"], action="choose", dest_id="desktop_work"
+            )
+        )
+        self.assertTrue(d1["ok"] and d2["ok"])
+        _ = desktop_prompt_decision
+
+        all_hist = dash.get_history(limit=100)
+        self.assertEqual(len(all_hist), 2)
+        # Newest-first ordering
+        self.assertEqual(all_hist[0]["tx_id"], d2["tx_id"])
+        self.assertEqual(all_hist[1]["tx_id"], d1["tx_id"])
+        self.assertFalse(all_hist[0]["undone"])
+
+        # Limit parameter bounds cleanly
+        self.assertEqual(len(dash.get_history(limit=1)), 1)
+        self.assertEqual(len(dash.get_history(limit=9999)), 2)
+
+        # Undo specific historical tx_id updates undone state in /history
+        undo_res = dash.undo(tx_id=d1["tx_id"])
+        self.assertTrue(undo_res["ok"])
+        self.assertTrue(f1.exists())
+        updated_hist = dash.get_history(limit=50)
+        tx1_row = next(r for r in updated_hist if r["tx_id"] == d1["tx_id"])
+        self.assertTrue(tx1_row["undone"])
+
+        # Status, pending, rules, rescan, delete_rule work cleanly
+        self.assertTrue(dash.get_status()["ok"])
+        self.assertEqual(dash.get_pending(), [])
+        rules = dash.get_rules()
+        self.assertEqual(len(rules["learned_rules"]), 1)
+        rid = rules["learned_rules"][0]["id"]
+        self.assertTrue(dash.delete_rule(rid)["ok"])
+        self.assertEqual(len(dash.get_rules()["learned_rules"]), 0)
+        self.assertTrue(dash.rescan(immediate=True, clear_undo_cooldowns=False, launch_popup=False)["ok"])
+
+        # Demo client smoke check (all paths under home, zero host mutations)
+        demo = DemoDashboardClient()
+        self.assertTrue(demo.get_status()["ok"])
+        self.assertGreaterEqual(len(demo.get_history()), 2)
+        self.assertGreaterEqual(len(demo.get_pending()), 1)
+        self.assertTrue(demo.rescan()["ok"])
+        demo_undo = demo.undo(tx_id="tx_demo0002")
+        self.assertTrue(demo_undo["ok"])
+        self.assertTrue(demo.delete_rule("lr_demo01")["ok"])
 
 
 if __name__ == "__main__":

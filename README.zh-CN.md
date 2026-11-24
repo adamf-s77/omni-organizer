@@ -54,10 +54,11 @@ flowchart LR
    ```powershell
    python src\desktop_prompt.py --demo
    ```
-4. **启动后台监听服务**
+4. **启动后台监听服务与控制平台**
    - 前台测试运行：`python src\watcher.py`
    - 安装 Windows 登录自动静默后台运行：`powershell -ExecutionPolicy Bypass -File scripts\install_user_task.ps1`
-   - 打开交互式控制菜单：双击 `launch_control_center.bat`
+   - 图形化控制平台（历史移动记录＋立即扫描）：双击 `launch_dashboard.bat`（或 `python src\control_dashboard.py --demo`）
+   - 打开终端控制菜单：双击 `launch_control_center.bat`
 
 ## AI 模型支持
 

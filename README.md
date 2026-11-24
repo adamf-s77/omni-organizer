@@ -54,10 +54,11 @@ flowchart LR
    ```powershell
    python src\desktop_prompt.py --demo
    ```
-4. **Start the background watcher**
+4. **Start the background watcher & dashboard**
    - Foreground test: `python src\watcher.py`
    - Windows silent logon auto-start: `powershell -ExecutionPolicy Bypass -File scripts\install_user_task.ps1`
-   - Control menu: double-click `launch_control_center.bat`
+   - GUI Control Dashboard (move history + instant scan): double-click `launch_dashboard.bat` (or `python src\control_dashboard.py --demo`)
+   - CLI control menu: double-click `launch_control_center.bat`
 
 ## AI Providers
 
