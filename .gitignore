@@ -1,0 +1,29 @@
+# Runtime logs, state, reports, and caches
+logs/
+state/
+reports/*
+!reports/.gitkeep
+__pycache__/
+*.pyc
+.vscode/
+.pytest_cache/
+.venv/
+venv/
+bin/
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite*
+
+# Personal local configs, secrets & launch drafts (never commit to public GitHub)
+config/config.yaml
+config/monitored_paths.json
+config/*.local.json
+config/*.local.txt
+*.local.md
+*.key
+*.pem
+docs/pc_architecture_map.md
+docs/history/
+scripts/archive/

@@ -1,0 +1,64 @@
+# Example organize-tool v3.3+ maintenance configuration
+# Copy to config/config.yaml and customize paths for your machine.
+# Verify with:
+#   python -m organize check config/config.yaml
+#   python -m organize sim config/config.yaml
+
+rules:
+  - name: "Maintenance - Trash duplicate files in Downloads"
+    tags: [maintenance]
+    locations:
+      - path: "~/Downloads"
+        ignore_errors: true
+    subfolders: true
+    targets: files
+    filters:
+      - duplicate:
+          detect_original_by: first_seen
+    actions:
+      - trash
+
+  - name: "Maintenance - Trash old installers (> 30 days, keep iso/ova)"
+    tags: [maintenance]
+    locations:
+      - path: "~/Downloads/01_Installers"
+        ignore_errors: true
+    subfolders: false
+    targets: files
+    filters:
+      - extension: [exe, msi, msix]
+      - lastmodified:
+          days: 30
+          mode: older
+    actions:
+      - trash
+
+  - name: "Maintenance - Organize old screenshots by YYYY-MM (> 14 days)"
+    tags: [maintenance]
+    locations:
+      - path: "~/Pictures/Screenshots"
+        ignore_errors: true
+    subfolders: false
+    targets: files
+    filters:
+      - extension: [png, jpg, jpeg]
+      - lastmodified:
+          days: 14
+          mode: older
+      - created
+    actions:
+      - move:
+          dest: "~/Pictures/Screenshots/{created.strftime('%Y-%m')}/"
+          on_conflict: "skip"
+
+  - name: "Maintenance - Remove empty directories in Desktop/_Inbox"
+    tags: [maintenance]
+    locations:
+      - path: "~/Desktop/_Inbox"
+        ignore_errors: true
+    subfolders: true
+    targets: dirs
+    filters:
+      - empty
+    actions:
+      - delete

@@ -1,0 +1,15 @@
+# Core dependencies
+organize-tool>=3.3.0
+watchdog>=4.0.0
+httpx>=0.27.0
+pydantic>=2.7.0
+pypdf>=4.0.0
+python-docx>=1.1.0
+PyYAML>=6.0.0
+
+# Optional: Google Gemini free/cloud tier provider
+# google-genai>=1.0.0
+
+# Optional: Discord remote HITL extension (integrations/discord)
+# discord.py>=2.3.0
+# aiohttp>=3.9.0

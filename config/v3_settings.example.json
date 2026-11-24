@@ -1,0 +1,411 @@
+{
+  "version": "3.0.0",
+  "quiescence_seconds": 6.0,
+  "cooldown_hours": 24.0,
+  "maintenance_interval_seconds": 86400,
+  "ai": {
+    "provider": "ollama",
+    "model": "qwen2.5:3b",
+    "base_url": "http://127.0.0.1:11434",
+    "api_key_env": "",
+    "timeout_seconds": 60.0,
+    "keep_alive": "2m",
+    "auto_move_threshold": 0.85,
+    "misplacement_threshold": 0.9,
+    "preview_max_chars": 400,
+    "disable_thinking": true,
+    "require_confirmation": false
+  },
+  "bridge": {
+    "host": "127.0.0.1",
+    "port": 8766,
+    "enabled": true
+  },
+  "ui": {
+    "desktop_popup_enabled": true,
+    "topmost": true,
+    "popup_cooldown_seconds": 3.0
+  },
+  "protected_paths": [
+    "~/Projects",
+    "D:/Games"
+  ],
+  "monitored_scopes": [
+    {
+      "id": "desktop",
+      "path": "~/Desktop",
+      "mode": "root_and_subdirs",
+      "allowed_subdirs": [
+        "_Inbox",
+        "_Inbox/Images",
+        "_Inbox/Media",
+        "_Inbox/Documents",
+        "_Inbox/Code"
+      ],
+      "misplacement_subdirs": [],
+      "max_depth": 2,
+      "enabled": true
+    },
+    {
+      "id": "downloads",
+      "path": "~/Downloads",
+      "mode": "root_and_subdirs",
+      "allowed_subdirs": [
+        "01_Installers",
+        "02_Archives",
+        "03_Documents",
+        "04_Code_Data",
+        "05_Media"
+      ],
+      "misplacement_subdirs": [],
+      "max_depth": 1,
+      "enabled": true
+    },
+    {
+      "id": "documents",
+      "path": "~/Documents",
+      "mode": "root_only",
+      "allowed_subdirs": [],
+      "misplacement_subdirs": [],
+      "max_depth": 0,
+      "enabled": true
+    },
+    {
+      "id": "pictures",
+      "path": "~/Pictures",
+      "mode": "root_only",
+      "allowed_subdirs": [],
+      "misplacement_subdirs": [],
+      "max_depth": 0,
+      "enabled": true
+    },
+    {
+      "id": "videos",
+      "path": "~/Videos",
+      "mode": "root_only",
+      "allowed_subdirs": [],
+      "misplacement_subdirs": [],
+      "max_depth": 0,
+      "enabled": true
+    }
+  ],
+  "destinations": [
+    {
+      "id": "inbox_docs",
+      "label": "Desktop / _Inbox / Documents",
+      "path": "~/Desktop/_Inbox/Documents",
+      "description": "General documents, PDFs, slides, and spreadsheets",
+      "group": "Desktop"
+    },
+    {
+      "id": "inbox_images",
+      "label": "Desktop / _Inbox / Images",
+      "path": "~/Desktop/_Inbox/Images",
+      "description": "General images, graphics, and photos",
+      "group": "Desktop"
+    },
+    {
+      "id": "inbox_media",
+      "label": "Desktop / _Inbox / Media",
+      "path": "~/Desktop/_Inbox/Media",
+      "description": "Videos and audio clips",
+      "group": "Desktop"
+    },
+    {
+      "id": "inbox_code",
+      "label": "Desktop / _Inbox / Code",
+      "path": "~/Desktop/_Inbox/Code",
+      "description": "Standalone source scripts and archives",
+      "group": "Desktop"
+    },
+    {
+      "id": "dl_installers",
+      "label": "Downloads / 01_Installers",
+      "path": "~/Downloads/01_Installers",
+      "description": "Software installers (.exe, .msi, .iso)",
+      "group": "Downloads",
+      "ai_selectable": false
+    },
+    {
+      "id": "dl_archives",
+      "label": "Downloads / 02_Archives",
+      "path": "~/Downloads/02_Archives",
+      "description": "Compressed archives (.zip, .rar, .7z)",
+      "group": "Downloads",
+      "ai_selectable": false
+    },
+    {
+      "id": "dl_docs",
+      "label": "Downloads / 03_Documents",
+      "path": "~/Downloads/03_Documents",
+      "description": "Downloaded PDFs, ebooks, and notes",
+      "group": "Downloads"
+    },
+    {
+      "id": "dl_code",
+      "label": "Downloads / 04_Code_Data",
+      "path": "~/Downloads/04_Code_Data",
+      "description": "Downloaded scripts, datasets, and notebooks",
+      "group": "Downloads"
+    },
+    {
+      "id": "dl_media",
+      "label": "Downloads / 05_Media",
+      "path": "~/Downloads/05_Media",
+      "description": "Downloaded images, audio, and video files",
+      "group": "Downloads"
+    },
+    {
+      "id": "pictures_screenshots",
+      "label": "Pictures / Screenshots",
+      "path": "~/Pictures/Screenshots",
+      "description": "Screen captures and desktop screenshots",
+      "group": "Media"
+    }
+  ],
+  "tier1_rules": [
+    {
+      "id": "t1_installers",
+      "name": "Installers to Downloads/01_Installers",
+      "dest_id": "dl_installers",
+      "scopes": [
+        "desktop",
+        "downloads",
+        "documents"
+      ],
+      "extensions": [
+        "exe",
+        "msi",
+        "msix",
+        "iso",
+        "ova"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "t1_downloads_archives",
+      "name": "Archives in Downloads to 02_Archives",
+      "dest_id": "dl_archives",
+      "scopes": [
+        "downloads"
+      ],
+      "extensions": [
+        "zip",
+        "rar",
+        "7z",
+        "tar",
+        "gz",
+        "bz2"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "t1_screenshots",
+      "name": "Screenshots to Pictures/Screenshots",
+      "dest_id": "pictures_screenshots",
+      "scopes": [
+        "desktop",
+        "downloads",
+        "pictures"
+      ],
+      "extensions": [
+        "png",
+        "jpg",
+        "jpeg"
+      ],
+      "regex": "(?i)^screenshot",
+      "keywords": [],
+      "enabled": true
+    }
+  ],
+  "privacy_zone_dest_ids": [],
+  "offline_fallback_rules": [
+    {
+      "id": "fb_desktop_images",
+      "name": "Offline fallback desktop images",
+      "dest_id": "inbox_images",
+      "scopes": [
+        "desktop"
+      ],
+      "extensions": [
+        "jpg",
+        "jpeg",
+        "png",
+        "gif",
+        "heic",
+        "webp",
+        "bmp",
+        "svg",
+        "ico"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "fb_desktop_media",
+      "name": "Offline fallback desktop media",
+      "dest_id": "inbox_media",
+      "scopes": [
+        "desktop"
+      ],
+      "extensions": [
+        "mp4",
+        "mkv",
+        "avi",
+        "mov",
+        "flv",
+        "wmv",
+        "mp3",
+        "wav",
+        "flac",
+        "m4a"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "fb_desktop_docs",
+      "name": "Offline fallback desktop docs",
+      "dest_id": "inbox_docs",
+      "scopes": [
+        "desktop"
+      ],
+      "extensions": [
+        "pdf",
+        "ppt",
+        "pptx",
+        "doc",
+        "docx",
+        "xls",
+        "xlsx",
+        "csv",
+        "epub",
+        "mobi",
+        "odt",
+        "txt",
+        "md"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "fb_desktop_code",
+      "name": "Offline fallback desktop code",
+      "dest_id": "inbox_code",
+      "scopes": [
+        "desktop"
+      ],
+      "extensions": [
+        "py",
+        "ipynb",
+        "cpp",
+        "c",
+        "h",
+        "hpp",
+        "java",
+        "js",
+        "ts",
+        "html",
+        "css",
+        "json",
+        "sql",
+        "rs",
+        "go",
+        "zip",
+        "rar",
+        "7z",
+        "tar",
+        "gz"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "fb_downloads_docs",
+      "name": "Offline fallback downloads docs",
+      "dest_id": "dl_docs",
+      "scopes": [
+        "downloads"
+      ],
+      "extensions": [
+        "pdf",
+        "doc",
+        "docx",
+        "ppt",
+        "pptx",
+        "xls",
+        "xlsx",
+        "csv",
+        "epub",
+        "mobi",
+        "txt",
+        "odt"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "fb_downloads_code",
+      "name": "Offline fallback downloads code",
+      "dest_id": "dl_code",
+      "scopes": [
+        "downloads"
+      ],
+      "extensions": [
+        "py",
+        "ipynb",
+        "cpp",
+        "c",
+        "h",
+        "java",
+        "js",
+        "ts",
+        "html",
+        "css",
+        "json",
+        "sql",
+        "md"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    },
+    {
+      "id": "fb_downloads_media",
+      "name": "Offline fallback downloads media",
+      "dest_id": "dl_media",
+      "scopes": [
+        "downloads"
+      ],
+      "extensions": [
+        "jpg",
+        "jpeg",
+        "png",
+        "gif",
+        "webp",
+        "bmp",
+        "svg",
+        "mp4",
+        "mkv",
+        "avi",
+        "mp3",
+        "wav",
+        "m4a"
+      ],
+      "regex": null,
+      "keywords": [],
+      "enabled": true
+    }
+  ],
+  "archive_max_per_sweep": 5,
+  "archive_rules": []
+}
