@@ -63,6 +63,7 @@ function Show-Header {
     Write-Host "   [7] 停止背景自動監控" -ForegroundColor White
     Write-Host "   [8] 切換開機自動啟動 (啟用 / 停用)" -ForegroundColor White
     Write-Host "   [9] 執行全機唯讀深度健檢 (scripts\deep_audit.py)" -ForegroundColor White
+    Write-Host "   [S] 立即掃描全部監控資料夾 (v3 AI 即時檢測)" -ForegroundColor White
     Write-Host "   [P] 開啟桌面審核確認視窗 (src\desktop_prompt.py)" -ForegroundColor White
     Write-Host "   [C] 編輯全域分類規則 (config\config.yaml)" -ForegroundColor Gray
     Write-Host "   [L] 查看執行日誌 (logs\organize.log)" -ForegroundColor Gray
@@ -145,6 +146,12 @@ while ($true) {
             Clear-Host
             Write-Host "正在執行全機唯讀深度健檢..." -ForegroundColor Yellow
             & $pyExe $auditScript
+            pause
+        }
+        "S" {
+            Clear-Host
+            Write-Host "正在觸發立即掃描與 AI 即時檢測..." -ForegroundColor Yellow
+            & $pyExe $manageScript scan
             pause
         }
         "P" {

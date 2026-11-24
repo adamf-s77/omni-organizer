@@ -35,12 +35,12 @@ from watchdog.observers import Observer  # noqa: E402
 from bridge_api import BridgeServer  # noqa: E402
 from decision_engine import DecisionEngine  # noqa: E402
 from desktop_prompt import launch_desktop_prompt_if_needed  # noqa: E402
-from guardrails import is_ignored_file  # noqa: E402
+from guardrails import is_forbidden_path, is_ignored_file  # noqa: E402
 from lifecycle_archiver import scan_archive_candidates  # noqa: E402
 from providers import create_provider  # noqa: E402
 from scopes import resolve_scope_for_path  # noqa: E402
 from settings import ensure_bridge_token, load_v3_settings  # noqa: E402
-from stability import FileQuiescenceTracker  # noqa: E402
+from stability import FileQuiescenceTracker, is_file_locked  # noqa: E402
 from state_store import StateStore  # noqa: E402
 
 RUN_LOCK = threading.Lock()
@@ -170,12 +170,22 @@ def main() -> None:
 
         tracker = FileQuiescenceTracker(settings.quiescence_seconds, on_ready=on_ready)
 
-        def rescan_scope_roots() -> int:
+        def rescan_scope_roots(
+            immediate: bool = True,
+            clear_undo_cooldowns: bool = False,
+        ) -> dict[str, int]:
+            if clear_undo_cooldowns:
+                cleared = store.clear_cooldowns_by_reason({"user_undo"})
+                if cleared:
+                    log(f"[rescan] 已清除 {cleared} 筆 user_undo 冷卻記錄以重新檢測")
             pending_norms = {
                 os.path.normcase(os.path.abspath(item.src_path))
                 for item in store.list_pending()
             }
+            processed = 0
             enqueued = 0
+            new_pending = 0
+            now_ts = time.time()
             for scope in settings.monitored_scopes:
                 if not scope.enabled:
                     continue
@@ -193,17 +203,39 @@ def main() -> None:
                         norm_entry = os.path.normcase(os.path.abspath(str(entry)))
                         if norm_entry in pending_norms:
                             continue
+                        if is_forbidden_path(entry, scope_root=root_dir, extra_forbidden=settings.protected_paths)[0]:
+                            continue
                         if is_ignored_file(entry)[0]:
                             continue
                         if store.is_self_move(entry):
                             continue
                         if store.is_on_cooldown(entry)[0]:
                             continue
-                        tracker.notify(str(entry))
-                        enqueued += 1
+                        st = entry.stat()
+                        age = max(0.0, now_ts - float(st.st_mtime))
+                        if immediate and age >= float(settings.quiescence_seconds) and not is_file_locked(entry):
+                            result = engine.process_file(entry)
+                            processed += 1
+                            action = result.get("action")
+                            if action not in {
+                                "ignored_self_move",
+                                "blocked",
+                                "missing",
+                                "out_of_scope",
+                                "already_correct",
+                                "kept_in_place",
+                                "cooldown",
+                            }:
+                                log(f"[engine] {entry.name}: {action}")
+                            if action in {"pending_review", "pending_sensitive"}:
+                                new_pending += 1
+                                pending_norms.add(norm_entry)
+                        else:
+                            tracker.notify(str(entry))
+                            enqueued += 1
                     except OSError:
                         continue
-            return enqueued
+            return {"processed": processed, "enqueued": enqueued, "new_pending": new_pending}
 
         log("=" * 60)
         log(f"Omni-Organizer v{settings.version} 三層決策智慧整理服務已啟動 (PID: {os.getpid()})")

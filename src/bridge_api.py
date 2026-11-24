@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import inspect
 import json
 import os
 import re
@@ -158,19 +159,40 @@ class BridgeServer:
                         result = bridge.engine.apply_decision(payload)
                         return self._send(200 if result.get("ok") else 409, result)
                     if method == "POST" and parts == ["rescan"]:
+                        body = self._body()
+                        immediate = bool(body.get("immediate", True))
+                        clear_undo_cooldowns = bool(body.get("clear_undo_cooldowns", False))
+                        launch_popup = bool(body.get("launch_popup", False))
                         pruned = bridge.engine.prune_missing_pending()
+                        processed = 0
                         enqueued = 0
                         if bridge.rescan_callback is not None:
                             try:
-                                enqueued = int(bridge.rescan_callback() or 0)
+                                sig_params = inspect.signature(bridge.rescan_callback).parameters
+                                cb_kwargs: dict[str, Any] = {}
+                                if "immediate" in sig_params:
+                                    cb_kwargs["immediate"] = immediate
+                                if "clear_undo_cooldowns" in sig_params:
+                                    cb_kwargs["clear_undo_cooldowns"] = clear_undo_cooldowns
+                                cb_res = bridge.rescan_callback(**cb_kwargs)
+                                if isinstance(cb_res, dict):
+                                    processed = int(cb_res.get("processed") or 0)
+                                    enqueued = int(cb_res.get("enqueued") or 0)
+                                else:
+                                    enqueued = int(cb_res or 0)
                             except Exception as exc:
                                 bridge.log(f"[bridge] rescan_callback 失敗: {type(exc).__name__}: {exc}")
-                                enqueued = 0
+                        pending_count = len(bridge.store.list_pending())
+                        if launch_popup and pending_count > 0:
+                            from desktop_prompt import launch_desktop_prompt_if_needed
+
+                            launch_desktop_prompt_if_needed(bridge.settings, logger=bridge.log)
                         return self._send(200, {
                             "ok": True,
                             "pruned_missing": pruned,
+                            "processed": processed,
                             "enqueued": enqueued,
-                            "pending_count": len(bridge.store.list_pending()),
+                            "pending_count": pending_count,
                         })
                     if method == "POST" and parts == ["undo"]:
                         tx_id = self._body().get("tx_id") or None

@@ -384,6 +384,40 @@ class TestBridgeAndCog(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(undo_res["ok"])
         self.assertTrue(custom_doc.exists())
 
+    def test_clear_undo_cooldowns_preserves_ignored_and_dict_rescan(self) -> None:
+        # user_undo cooldown should be cleared selectively while user_ignored remains intact
+        undo_target = self.desktop / "undo_item.pdf"
+        ignored_target = self.desktop / "ignored_item.pdf"
+        self.store.add_cooldown(undo_target, "hash_u", 24.0, "user_undo")
+        self.store.add_cooldown(ignored_target, "hash_i", 168.0, "user_ignored")
+
+        removed = self.store.clear_cooldowns_by_reason({"user_undo"})
+        self.assertEqual(removed, 1)
+        self.assertFalse(self.store.is_on_cooldown(undo_target, "hash_u")[0])
+        self.assertTrue(self.store.is_on_cooldown(ignored_target, "hash_i")[0])
+
+        # Dict callback with immediate/clear_undo_cooldowns kwargs works cleanly over POST /rescan
+        seen_args: list[tuple[bool, bool]] = []
+
+        def fake_rescan(immediate: bool = True, clear_undo_cooldowns: bool = False) -> dict[str, int]:
+            seen_args.append((immediate, clear_undo_cooldowns))
+            return {"processed": 2, "enqueued": 1, "new_pending": 1}
+
+        ui_client = DesktopBridgeClient(self.base_url, self.token)
+        orig_cb = self.bridge.rescan_callback
+        self.bridge.rescan_callback = fake_rescan
+        try:
+            res = ui_client.rescan(immediate=True, clear_undo_cooldowns=True)
+        finally:
+            self.bridge.rescan_callback = orig_cb
+
+        self.assertTrue(res["ok"])
+        self.assertEqual(seen_args, [(True, True)])
+        self.assertEqual(res["processed"], 2)
+        self.assertEqual(res["enqueued"], 1)
+        self.assertEqual(res["pruned_missing"], 0)
+        self.assertEqual(res["pending_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

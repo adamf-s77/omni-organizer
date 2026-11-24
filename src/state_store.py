@@ -178,6 +178,16 @@ class StateStore:
         with self._lock:
             return len(self._load_valid_cooldowns())
 
+    def clear_cooldowns_by_reason(self, reasons: set[str]) -> int:
+        """Remove active cooldown entries matching any reason in `reasons`."""
+        with self._lock:
+            items = self._load_valid_cooldowns()
+            kept = [it for it in items if str(it.get("reason") or "") not in reasons]
+            removed = len(items) - len(kept)
+            if removed > 0:
+                self._write_json_list(self.cooldowns_file, kept)
+            return removed
+
     # ------------------------------------------------------------------
     # Undo Journal (JSONL)
     # ------------------------------------------------------------------

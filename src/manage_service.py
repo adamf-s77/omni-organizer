@@ -304,12 +304,65 @@ def list_paths() -> None:
     print("CURRENT_PATHS=" + ";".join(paths))
 
 
+def trigger_scan(*, clear_undo_cooldowns: bool = False, launch_popup: bool = True) -> int:
+    """Trigger an immediate synchronous root-folder rescan via the local Bridge API."""
+    import json
+    import urllib.error
+    import urllib.request
+    from settings import ensure_bridge_token, load_v3_settings
+
+    settings = load_v3_settings()
+    if not settings.bridge.enabled:
+        print("[-] Bridge API 未啟用，無法執行即時掃描。")
+        return 1
+
+    token = ensure_bridge_token()
+    url = f"http://{settings.bridge.host}:{settings.bridge.port}/rescan"
+    payload = json.dumps(
+        {
+            "immediate": True,
+            "clear_undo_cooldowns": clear_undo_cooldowns,
+            "launch_popup": launch_popup,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        print(f"[-] 即時掃描失敗：HTTP {exc.code}")
+        return 1
+    except Exception as exc:
+        print(f"[-] 無法連線至背景服務 Bridge ({type(exc).__name__})，請先確認服務已啟動。")
+        return 1
+
+    processed = int(data.get("processed") or 0)
+    enqueued = int(data.get("enqueued") or 0)
+    pruned = int(data.get("pruned_missing") or 0)
+    pending = int(data.get("pending_count") or 0)
+    print(f"RESCAN_OK processed={processed} enqueued={enqueued} pruned={pruned} pending={pending}")
+    print(
+        f"[+] 掃描完成：立即檢測 {processed} 筆、排入穩定檢查 {enqueued} 筆、"
+        f"清理遺失 {pruned} 筆、待確認 {pending} 筆。"
+    )
+    return 0
+
+
 def main() -> None:
     """CLI entrypoint for service and path management."""
     if len(sys.argv) < 2:
         print(
             "Usage: manage_service.py "
-            "[status|start|stop|restart|enable_auto|disable_auto|list_paths|add_path|remove_path]"
+            "[status|start|stop|restart|scan|scan_force|enable_auto|disable_auto|list_paths|add_path|remove_path]"
         )
         return
 
@@ -332,6 +385,10 @@ def main() -> None:
         stop_watcher()
     elif arg == "restart":
         restart_watcher()
+    elif arg == "scan":
+        raise SystemExit(trigger_scan(clear_undo_cooldowns=False, launch_popup=True))
+    elif arg == "scan_force":
+        raise SystemExit(trigger_scan(clear_undo_cooldowns=True, launch_popup=True))
     elif arg == "enable_auto":
         enable_autostart()
     elif arg == "disable_auto":

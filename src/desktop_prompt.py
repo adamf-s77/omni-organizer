@@ -206,12 +206,20 @@ class DesktopBridgeClient:
         )
         return r.json()
 
-    def rescan(self) -> dict[str, Any]:
+    def rescan(
+        self,
+        *,
+        immediate: bool = True,
+        clear_undo_cooldowns: bool = False,
+    ) -> dict[str, Any]:
         r = httpx.post(
             f"{self.base_url}/rescan",
             headers=self._headers(),
-            json={},
-            timeout=self.timeout,
+            json={
+                "immediate": immediate,
+                "clear_undo_cooldowns": clear_undo_cooldowns,
+            },
+            timeout=max(self.timeout, 90.0),
             trust_env=False,
         )
         if r.status_code == 404:
@@ -286,8 +294,19 @@ class DemoBridgeClient:
         chosen_label = custom_dest_path or dest_id or "Desktop / Work & Study"
         return {"ok": True, "action": action, "tx_id": "tx_demo0001", "dest_label": chosen_label}
 
-    def rescan(self) -> dict[str, Any]:
-        return {"ok": True, "pruned_missing": 0, "enqueued": 0, "pending_count": len(self._items)}
+    def rescan(
+        self,
+        *,
+        immediate: bool = True,
+        clear_undo_cooldowns: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "pruned_missing": 0,
+            "processed": 0,
+            "enqueued": 0,
+            "pending_count": len(self._items),
+        }
 
     def undo(self) -> dict[str, Any]:
         return {"ok": True, "tx_id": "tx_demo0001", "restored_to": str(Path.home() / "Downloads" / "Algorithms_Lecture_04.pdf")}
@@ -407,25 +426,22 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
         side="left", fill="x", expand=True
     )
 
+    refreshing = False
+
     def current_item() -> Optional[dict[str, Any]]:
         visible = [i for i in items if i["id"] not in skipped_ids]
         return visible[0] if visible else None
 
-    def refresh_data(manual: bool = False) -> None:
+    def _apply_fetched_state(
+        new_items: list[dict[str, Any]],
+        new_dests: list[dict[str, Any]],
+        *,
+        manual: bool = False,
+        rescan_info: Optional[dict[str, Any]] = None,
+    ) -> None:
         nonlocal items, destinations, dest_choices, dest_id_by_choice
-        rescan_info: dict[str, Any] = {}
-        try:
-            if manual:
-                skipped_ids.clear()
-                if hasattr(client, "rescan"):
-                    rescan_info = client.rescan()
-            items = client.get_pending()
-            destinations = client.get_destinations()
-        except Exception as exc:
-            status_var.set(f"無法連線至 Bridge: {type(exc).__name__}")
-            items = []
-            render_current()
-            return
+        items = new_items
+        destinations = new_dests
         dest_choices = [f"{d['label']}  [{d['id']}]" for d in destinations]
         dest_id_by_choice = {f"{d['label']}  [{d['id']}]": d["id"] for d in destinations}
         combo["values"] = dest_choices
@@ -435,18 +451,77 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
         if manual:
             now_str = time.strftime("%H:%M:%S")
             visible_count = len([i for i in items if i["id"] not in skipped_ids])
-            msg = f"已重新整理 ({now_str}) — 待確認 {visible_count} 筆"
-            if rescan_info.get("ok"):
-                pruned = int(rescan_info.get("pruned_missing") or 0)
-                enqueued = int(rescan_info.get("enqueued") or 0)
+            msg = f"已掃描完成 ({now_str}) — 待確認 {visible_count} 筆"
+            info = rescan_info or {}
+            if info.get("ok"):
+                pruned = int(info.get("pruned_missing") or 0)
+                processed = int(info.get("processed") or 0)
+                enqueued = int(info.get("enqueued") or 0)
                 extras: list[str] = []
+                if processed > 0:
+                    extras.append(f"立即檢測 {processed} 筆")
                 if pruned > 0:
                     extras.append(f"清理遺失 {pruned} 筆")
                 if enqueued > 0:
-                    extras.append(f"排入重掃 {enqueued} 筆")
+                    extras.append(f"排入穩定檢查 {enqueued} 筆")
                 if extras:
                     msg += f"（{'、'.join(extras)}）"
             status_var.set(msg)
+
+    def refresh_data(manual: bool = False) -> None:
+        nonlocal items, refreshing
+        if not manual:
+            try:
+                new_items = client.get_pending()
+                new_dests = client.get_destinations()
+            except Exception as exc:
+                status_var.set(f"無法連線至 Bridge: {type(exc).__name__}")
+                items = []
+                render_current()
+                return
+            _apply_fetched_state(new_items, new_dests, manual=False)
+            return
+
+        if refreshing:
+            return
+        refreshing = True
+        btn_refresh.config(state="disabled")
+        status_var.set("⏳ 正在立即掃描與檢測中，請稍候...")
+        skipped_ids.clear()
+
+        def _worker() -> None:
+            rescan_info: dict[str, Any] = {}
+            err_name: Optional[str] = None
+            new_items: list[dict[str, Any]] = []
+            new_dests: list[dict[str, Any]] = []
+            try:
+                if hasattr(client, "rescan"):
+                    try:
+                        rescan_info = client.rescan(immediate=True, clear_undo_cooldowns=False)
+                    except TypeError:
+                        rescan_info = client.rescan()
+                new_items = client.get_pending()
+                new_dests = client.get_destinations()
+            except Exception as exc:
+                err_name = type(exc).__name__
+
+            def _finish() -> None:
+                nonlocal items, refreshing
+                refreshing = False
+                btn_refresh.config(state="normal")
+                if err_name is not None:
+                    status_var.set(f"無法連線至 Bridge: {err_name}")
+                    items = []
+                    render_current()
+                    return
+                _apply_fetched_state(new_items, new_dests, manual=True, rescan_info=rescan_info)
+
+            try:
+                root.after(0, _finish)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, name="desktop-rescan", daemon=True).start()
 
     def render_current() -> None:
         visible = [i for i in items if i["id"] not in skipped_ids]
@@ -602,7 +677,8 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
     btn_browse.config(command=on_browse)
     btn_choose.config(command=on_choose)
     btn_undo.config(command=on_undo)
-    ttk.Button(hdr, text="🔄 重新整理", command=lambda: refresh_data(manual=True)).pack(side="right", padx=(0, 8))
+    btn_refresh = ttk.Button(hdr, text="🔄 重新整理", command=lambda: refresh_data(manual=True))
+    btn_refresh.pack(side="right", padx=(0, 8))
 
     refresh_data(manual=False)
     root.mainloop()
