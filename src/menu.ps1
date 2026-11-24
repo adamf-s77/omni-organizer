@@ -148,7 +148,7 @@ while ($true) {
             pause
         }
         "P" {
-            Start-Process $pywExe -ArgumentList "`"$PSScriptRoot\desktop_prompt.py`"" -WorkingDirectory $projectRoot
+            Start-Process $pywExe -ArgumentList "`"$PSScriptRoot\desktop_prompt.py`" --show-empty" -WorkingDirectory $projectRoot
         }
         "C" {
             Start-Process notepad.exe $configFile

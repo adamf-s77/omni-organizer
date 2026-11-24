@@ -226,11 +226,12 @@ class NotificationEvent(BaseModel):
 
 
 class DecisionPayload(BaseModel):
-    """Payload accepted by POST /decide from Discord HITL interactions."""
+    """Payload accepted by POST /decide from HITL interactions."""
 
     pending_id: str
     action: Literal["accept", "accept_and_remember", "choose", "ignore"]
     dest_id: Optional[str] = None
+    custom_dest_path: Optional[str] = None
     remember: bool = False
     keyword: Optional[str] = None
     actor: str = "discord_user"

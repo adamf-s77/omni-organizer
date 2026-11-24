@@ -170,6 +170,41 @@ def main() -> None:
 
         tracker = FileQuiescenceTracker(settings.quiescence_seconds, on_ready=on_ready)
 
+        def rescan_scope_roots() -> int:
+            pending_norms = {
+                os.path.normcase(os.path.abspath(item.src_path))
+                for item in store.list_pending()
+            }
+            enqueued = 0
+            for scope in settings.monitored_scopes:
+                if not scope.enabled:
+                    continue
+                root_dir = Path(scope.path)
+                if not root_dir.is_dir():
+                    continue
+                try:
+                    entries = list(root_dir.iterdir())
+                except OSError:
+                    continue
+                for entry in entries:
+                    try:
+                        if not entry.is_file():
+                            continue
+                        norm_entry = os.path.normcase(os.path.abspath(str(entry)))
+                        if norm_entry in pending_norms:
+                            continue
+                        if is_ignored_file(entry)[0]:
+                            continue
+                        if store.is_self_move(entry):
+                            continue
+                        if store.is_on_cooldown(entry)[0]:
+                            continue
+                        tracker.notify(str(entry))
+                        enqueued += 1
+                    except OSError:
+                        continue
+            return enqueued
+
         log("=" * 60)
         log(f"Omni-Organizer v{settings.version} 三層決策智慧整理服務已啟動 (PID: {os.getpid()})")
         log(f"  + 專案根目錄: {PROJECT_ROOT}")
@@ -177,8 +212,16 @@ def main() -> None:
 
         if settings.bridge.enabled:
             try:
-                bridge = BridgeServer(settings.bridge.host, settings.bridge.port, ensure_bridge_token(),
-                                      engine, store, settings, logger=log)
+                bridge = BridgeServer(
+                    settings.bridge.host,
+                    settings.bridge.port,
+                    ensure_bridge_token(),
+                    engine,
+                    store,
+                    settings,
+                    logger=log,
+                    rescan_callback=rescan_scope_roots,
+                )
                 host, port = bridge.start()
                 log(f"  + Bridge API: http://{host}:{port} (僅本機、Bearer Token 保護)")
             except OSError as e:

@@ -476,6 +476,54 @@ class TestDecisionEngine(unittest.TestCase):
             queued2 = scan_archive_candidates(settings, store, now=now + 3600)
             self.assertEqual([q.filename for q in queued2], remaining)
 
+    def test_custom_dest_path_and_guardrails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = StubProvider(lambda req: ClassificationResult(destination_id=UNSURE, confidence=0.0))
+            desktop, _, _, _, _, settings, store, engine = _build_env(root, provider)
+
+            protected_vault = root / "ProtectedVault"
+            protected_vault.mkdir()
+            settings.protected_paths = [str(protected_vault)]
+
+            git_proj = root / "CodeRepo"
+            (git_proj / ".git").mkdir(parents=True)
+
+            # Relative path & forbidden targets must be rejected safely
+            f1 = desktop / "custom_doc.pdf"
+            f1.write_text("Project proposal", encoding="utf-8")
+            p1 = engine.process_file(f1)
+            self.assertEqual(p1["action"], "pending_review")
+            pid = p1["pending_id"]
+
+            for bad_target, expected_err in (
+                ("relative/dir", "invalid_custom_destination"),
+                (r"C:\Windows\Temp", "destination_forbidden"),
+                (str(protected_vault), "destination_forbidden"),
+                (str(git_proj), "destination_forbidden"),
+            ):
+                rej = engine.apply_decision(
+                    DecisionPayload(pending_id=pid, action="choose", custom_dest_path=bad_target)
+                )
+                self.assertFalse(rej["ok"], f"Expected rejection for {bad_target}")
+                self.assertIn(expected_err, rej["error"])
+                self.assertTrue(f1.exists())
+                self.assertEqual(store.get_pending(pid).status, "pending")
+
+            # Safe arbitrary custom folder outside preset whitelist -> moves cleanly & is undoable
+            custom_dir = root / "Arbitrary" / "CustomFolder"
+            ok_res = engine.apply_decision(
+                DecisionPayload(pending_id=pid, action="choose", custom_dest_path=str(custom_dir))
+            )
+            self.assertTrue(ok_res["ok"])
+            self.assertFalse(f1.exists())
+            self.assertTrue((custom_dir / "custom_doc.pdf").exists())
+
+            undo_res = undo_move(store, settings, ok_res["tx_id"])
+            self.assertTrue(undo_res["ok"])
+            self.assertTrue(f1.exists())
+            self.assertFalse((custom_dir / "custom_doc.pdf").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

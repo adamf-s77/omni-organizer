@@ -185,6 +185,7 @@ class DesktopBridgeClient:
         action: str,
         dest_id: Optional[str] = None,
         remember: bool = False,
+        custom_dest_path: Optional[str] = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "pending_id": pending_id,
@@ -194,6 +195,8 @@ class DesktopBridgeClient:
         }
         if dest_id:
             payload["dest_id"] = dest_id
+        if custom_dest_path:
+            payload["custom_dest_path"] = custom_dest_path
         r = httpx.post(
             f"{self.base_url}/decide",
             headers=self._headers(),
@@ -201,6 +204,19 @@ class DesktopBridgeClient:
             timeout=self.timeout,
             trust_env=False,
         )
+        return r.json()
+
+    def rescan(self) -> dict[str, Any]:
+        r = httpx.post(
+            f"{self.base_url}/rescan",
+            headers=self._headers(),
+            json={},
+            timeout=self.timeout,
+            trust_env=False,
+        )
+        if r.status_code == 404:
+            return {"ok": False, "error": "rescan_not_supported"}
+        r.raise_for_status()
         return r.json()
 
     def undo(self) -> dict[str, Any]:
@@ -258,9 +274,20 @@ class DemoBridgeClient:
     def get_destinations(self) -> list[dict[str, Any]]:
         return list(self._dests)
 
-    def decide(self, pending_id: str, action: str, dest_id: Optional[str] = None, remember: bool = False) -> dict[str, Any]:
+    def decide(
+        self,
+        pending_id: str,
+        action: str,
+        dest_id: Optional[str] = None,
+        remember: bool = False,
+        custom_dest_path: Optional[str] = None,
+    ) -> dict[str, Any]:
         self._items = [i for i in self._items if i["id"] != pending_id]
-        return {"ok": True, "action": action, "tx_id": "tx_demo0001", "dest_label": dest_id or "Desktop / Work & Study"}
+        chosen_label = custom_dest_path or dest_id or "Desktop / Work & Study"
+        return {"ok": True, "action": action, "tx_id": "tx_demo0001", "dest_label": chosen_label}
+
+    def rescan(self) -> dict[str, Any]:
+        return {"ok": True, "pruned_missing": 0, "enqueued": 0, "pending_count": len(self._items)}
 
     def undo(self) -> dict[str, Any]:
         return {"ok": True, "tx_id": "tx_demo0001", "restored_to": str(Path.home() / "Downloads" / "Algorithms_Lecture_04.pdf")}
@@ -269,7 +296,7 @@ class DemoBridgeClient:
 def run_approval_window(client: Any, *, topmost: bool = True) -> None:
     """Launch the native tkinter approval dialog."""
     import tkinter as tk
-    from tkinter import ttk
+    from tkinter import filedialog, ttk
 
     if os.name == "nt":
         try:
@@ -358,13 +385,15 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
     btn_ignore.pack(side="left", padx=(0, 6))
     btn_later.pack(side="right")
 
-    # Manual destination selector
+    # Manual / custom destination selector
     choose_row = ttk.Frame(container)
     choose_row.pack(fill="x", pady=(0, 10))
-    ttk.Label(choose_row, text="改選其他資料夾：").pack(side="left")
+    ttk.Label(choose_row, text="改選／自訂資料夾：").pack(side="left")
     combo_var = tk.StringVar()
-    combo = ttk.Combobox(choose_row, textvariable=combo_var, state="readonly", width=48)
-    combo.pack(side="left", fill="x", expand=True, padx=6)
+    combo = ttk.Combobox(choose_row, textvariable=combo_var, state="normal", width=34)
+    combo.pack(side="left", fill="x", expand=True, padx=(6, 4))
+    btn_browse = ttk.Button(choose_row, text="📁 瀏覽...")
+    btn_browse.pack(side="left", padx=(0, 4))
     btn_choose = ttk.Button(choose_row, text="📂 移至此處")
     btn_choose.pack(side="left")
 
@@ -372,28 +401,52 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
     footer = ttk.Frame(container)
     footer.pack(fill="x")
     status_var = tk.StringVar(value="就緒")
-    ttk.Label(footer, textvariable=status_var, foreground="#444444").pack(side="left")
     btn_undo = ttk.Button(footer, text="↩️ 還原上一筆搬移")
     btn_undo.pack(side="right")
+    ttk.Label(footer, textvariable=status_var, foreground="#444444", wraplength=470).pack(
+        side="left", fill="x", expand=True
+    )
 
     def current_item() -> Optional[dict[str, Any]]:
         visible = [i for i in items if i["id"] not in skipped_ids]
         return visible[0] if visible else None
 
-    def refresh_data() -> None:
+    def refresh_data(manual: bool = False) -> None:
         nonlocal items, destinations, dest_choices, dest_id_by_choice
+        rescan_info: dict[str, Any] = {}
         try:
+            if manual:
+                skipped_ids.clear()
+                if hasattr(client, "rescan"):
+                    rescan_info = client.rescan()
             items = client.get_pending()
             destinations = client.get_destinations()
         except Exception as exc:
             status_var.set(f"無法連線至 Bridge: {type(exc).__name__}")
             items = []
+            render_current()
+            return
         dest_choices = [f"{d['label']}  [{d['id']}]" for d in destinations]
         dest_id_by_choice = {f"{d['label']}  [{d['id']}]": d["id"] for d in destinations}
         combo["values"] = dest_choices
-        if dest_choices and not combo_var.get():
+        if dest_choices and not combo_var.get().strip():
             combo_var.set(dest_choices[0])
         render_current()
+        if manual:
+            now_str = time.strftime("%H:%M:%S")
+            visible_count = len([i for i in items if i["id"] not in skipped_ids])
+            msg = f"已重新整理 ({now_str}) — 待確認 {visible_count} 筆"
+            if rescan_info.get("ok"):
+                pruned = int(rescan_info.get("pruned_missing") or 0)
+                enqueued = int(rescan_info.get("enqueued") or 0)
+                extras: list[str] = []
+                if pruned > 0:
+                    extras.append(f"清理遺失 {pruned} 筆")
+                if enqueued > 0:
+                    extras.append(f"排入重掃 {enqueued} 筆")
+                if extras:
+                    msg += f"（{'、'.join(extras)}）"
+            status_var.set(msg)
 
     def render_current() -> None:
         visible = [i for i in items if i["id"] not in skipped_ids]
@@ -406,7 +459,7 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
             meta_var.set("-")
             sugg_var.set("-")
             reason_var.set("你可以關閉視窗，或等待新檔案抵達時自動彈出。")
-            for b in (btn_accept, btn_remember, btn_ignore, btn_later, btn_choose):
+            for b in (btn_accept, btn_remember, btn_ignore, btn_later, btn_browse, btn_choose):
                 b.config(state="disabled")
             return
 
@@ -460,13 +513,25 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
         )
         btn_ignore.config(state="normal")
         btn_later.config(state="normal")
-        btn_choose.config(state="normal" if dest_choices else "disabled")
+        btn_browse.config(state="normal")
+        btn_choose.config(state="normal")
 
-    def run_decision(action: str, dest_id: Optional[str] = None, remember: bool = False) -> None:
+    def run_decision(
+        action: str,
+        dest_id: Optional[str] = None,
+        remember: bool = False,
+        custom_dest_path: Optional[str] = None,
+    ) -> None:
         item = current_item()
         if item is None:
             return
-        res = client.decide(item["id"], action=action, dest_id=dest_id, remember=remember)
+        res = client.decide(
+            item["id"],
+            action=action,
+            dest_id=dest_id,
+            remember=remember,
+            custom_dest_path=custom_dest_path,
+        )
         if res.get("ok"):
             if action == "ignore":
                 status_var.set(f"已忽略 {item['filename']}")
@@ -474,7 +539,7 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
                 status_var.set(f"已搬移至 {res.get('dest_label') or res.get('dst', '')}")
         else:
             status_var.set(f"操作失敗：{res.get('error', 'unknown')}")
-        refresh_data()
+        refresh_data(manual=False)
 
     def on_later() -> None:
         item = current_item()
@@ -483,10 +548,44 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
             status_var.set(f"已略過 {item['filename']}（下次再詢問）")
             render_current()
 
+    def on_browse() -> None:
+        raw = combo_var.get().strip().strip('"')
+        init_dir = str(Path.home())
+        if raw and os.path.isdir(raw):
+            init_dir = raw
+        else:
+            item = current_item()
+            if item and item.get("src_path"):
+                parent = Path(item["src_path"]).parent
+                if parent.is_dir():
+                    init_dir = str(parent)
+        if topmost:
+            root.attributes("-topmost", False)
+        try:
+            chosen = filedialog.askdirectory(
+                parent=root,
+                title="選擇要移入的目標資料夾",
+                initialdir=init_dir,
+            )
+        finally:
+            if topmost:
+                root.attributes("-topmost", True)
+                root.lift()
+        if chosen:
+            norm_chosen = os.path.normpath(chosen)
+            combo_var.set(norm_chosen)
+            status_var.set(f"已選取自訂資料夾：{norm_chosen}（請按「📂 移至此處」確認）")
+
     def on_choose() -> None:
-        did = dest_id_by_choice.get(combo_var.get())
+        raw = combo_var.get().strip().strip('"')
+        did = dest_id_by_choice.get(raw)
         if did:
             run_decision("choose", dest_id=did, remember=False)
+            return
+        if raw and os.path.isabs(raw):
+            run_decision("choose", custom_dest_path=raw, remember=False)
+            return
+        status_var.set("請從選單挑選資料夾，或按「📁 瀏覽...」選擇完整路徑")
 
     def on_undo() -> None:
         res = client.undo()
@@ -494,23 +593,25 @@ def run_approval_window(client: Any, *, topmost: bool = True) -> None:
             status_var.set(f"已還原 {res.get('tx_id')} -> {res.get('restored_to')}")
         else:
             status_var.set(f"還原失敗：{res.get('error', 'unknown')}")
-        refresh_data()
+        refresh_data(manual=False)
 
     btn_accept.config(command=lambda: run_decision("accept"))
     btn_remember.config(command=lambda: run_decision("accept_and_remember", remember=True))
     btn_ignore.config(command=lambda: run_decision("ignore"))
     btn_later.config(command=on_later)
+    btn_browse.config(command=on_browse)
     btn_choose.config(command=on_choose)
     btn_undo.config(command=on_undo)
-    ttk.Button(hdr, text="🔄 重新整理", command=refresh_data).pack(side="right", padx=(0, 8))
+    ttk.Button(hdr, text="🔄 重新整理", command=lambda: refresh_data(manual=True)).pack(side="right", padx=(0, 8))
 
-    refresh_data()
+    refresh_data(manual=False)
     root.mainloop()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Omni-Organizer v3 Native Desktop Approval Popup")
     parser.add_argument("--demo", action="store_true", help="Preview popup with demo data")
+    parser.add_argument("--show-empty", action="store_true", help="Open window even when pending queue is empty")
     args = parser.parse_args()
 
     if args.demo:
@@ -524,11 +625,12 @@ def main() -> None:
         token = ensure_bridge_token()
         base_url = f"http://{settings.bridge.host}:{settings.bridge.port}"
         client = DesktopBridgeClient(base_url, token)
-        try:
-            if not client.get_pending():
+        if not args.show_empty:
+            try:
+                if not client.get_pending():
+                    return
+            except Exception:
                 return
-        except Exception:
-            return
         run_approval_window(client, topmost=settings.ui.topmost)
     finally:
         release_prompt_lock(DESKTOP_PROMPT_LOCK)

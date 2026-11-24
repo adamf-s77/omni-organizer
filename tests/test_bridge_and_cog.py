@@ -341,6 +341,49 @@ class TestBridgeAndCog(unittest.IsolatedAsyncioTestCase):
         )
         release_prompt_lock(lock_file)
 
+    def test_bridge_rescan_prunes_missing_and_custom_dest_over_http(self) -> None:
+        ui_client = DesktopBridgeClient(self.base_url, self.token)
+
+        # Missing file in pending queue gets pruned on /rescan, and rescan_callback count is returned
+        ghost = self.desktop / "ghost_temp.pdf"
+        ghost.write_text("will vanish", encoding="utf-8")
+        proc_ghost = self.engine.process_file(ghost)
+        self.assertEqual(proc_ghost["action"], "pending_review")
+        ghost.unlink()
+
+        orig_cb = self.bridge.rescan_callback
+        self.bridge.rescan_callback = lambda: 3
+        try:
+            scan_res = ui_client.rescan()
+        finally:
+            self.bridge.rescan_callback = orig_cb
+
+        self.assertTrue(scan_res["ok"])
+        self.assertEqual(scan_res["pruned_missing"], 1)
+        self.assertEqual(scan_res["enqueued"], 3)
+        self.assertEqual(scan_res["pending_count"], 0)
+        self.assertEqual(ui_client.get_pending(), [])
+
+        # Custom destination folder works end-to-end via DesktopBridgeClient.decide + undo
+        custom_doc = self.desktop / "custom_http.pdf"
+        custom_doc.write_text("Bridge custom destination", encoding="utf-8")
+        proc_custom = self.engine.process_file(custom_doc)
+        self.assertEqual(proc_custom["action"], "pending_review")
+
+        custom_dir = Path(self.tmp.name) / "PickedCustomDir"
+        dec_res = ui_client.decide(
+            proc_custom["pending_id"],
+            "choose",
+            custom_dest_path=str(custom_dir),
+        )
+        self.assertTrue(dec_res["ok"])
+        self.assertFalse(custom_doc.exists())
+        self.assertTrue((custom_dir / "custom_http.pdf").exists())
+
+        undo_res = ui_client.undo()
+        self.assertTrue(undo_res["ok"])
+        self.assertTrue(custom_doc.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

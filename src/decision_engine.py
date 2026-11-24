@@ -314,7 +314,7 @@ class DecisionEngine:
             if self.settings.ai.require_confirmation:
                 return self._enqueue_pending(
                     path, sid, file_hash, is_misplaced=(not is_intake), result=result,
-                    reason=f"AI 建議歸檔 ({result.confidence:.2f})：{result.reason}（先經 Discord 確認）",
+                    reason=f"AI 建議歸檔 ({result.confidence:.2f})：{result.reason}（待人工確認）",
                 )
             return self._do_move(
                 path, dest.id, tier="tier2_ai",
@@ -352,8 +352,18 @@ class DecisionEngine:
         return self._enqueue_pending(path, sid, file_hash, result=result, reason=reason)
 
     # ------------------------------------------------------------------
-    # Tier 3 decisions from Discord
+    # Tier 3 decisions (Desktop Popup / Discord)
     # ------------------------------------------------------------------
+    def prune_missing_pending(self) -> int:
+        """Resolve any pending items whose source file no longer exists on disk."""
+        pruned = 0
+        with self._lock:
+            for item in self.store.list_pending():
+                if not Path(item.src_path).is_file():
+                    if self.store.resolve_pending(item.id, "missing") is not None:
+                        pruned += 1
+        return pruned
+
     def apply_decision(self, payload: DecisionPayload) -> dict:
         with self._lock:
             return self._apply(payload)
@@ -375,6 +385,25 @@ class DecisionEngine:
         if not src.is_file():
             self.store.resolve_pending(pending.id, "missing")
             return {"ok": False, "error": "source_missing", "pending_id": pending.id}
+
+        if payload.action == "choose" and payload.custom_dest_path is not None:
+            raw_custom = payload.custom_dest_path.strip().strip('"')
+            if not raw_custom or not os.path.isabs(raw_custom):
+                return {"ok": False, "error": "invalid_custom_destination"}
+            custom_label = str(Path(os.path.abspath(raw_custom)))
+            res = safe_move_file(
+                src, raw_custom, self.settings, self.store,
+                tier="tier3_hitl", reason=f"使用者自訂資料夾（{payload.actor}）",
+                confidence=1.0, allow_custom_dest=True,
+            )
+            if res.get("status") != "moved":
+                return {"ok": False, "error": res.get("error") or res.get("status"), "detail": res}
+            self.store.resolve_pending(pending.id, "approved")
+            self.log(f"[tier3] 使用者自訂搬移 {src.name} -> {custom_label} tx={res['tx_id']}")
+            return {
+                "ok": True, "action": "choose", "tx_id": res["tx_id"],
+                "dst": res["dst"], "dest_label": custom_label, "rule_id": None,
+            }
 
         if payload.action == "choose":
             dest_id = payload.dest_id

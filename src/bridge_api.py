@@ -34,6 +34,7 @@ class BridgeServer:
         settings: V3Settings,
         started_at: float | None = None,
         logger=None,
+        rescan_callback=None,
     ) -> None:
         if host not in LOOPBACK_HOSTS:
             raise ValueError(f"Bridge must bind to loopback only, got {host!r}")
@@ -43,6 +44,7 @@ class BridgeServer:
         self.engine, self.store, self.settings = engine, store, settings
         self.started_at = started_at or time.time()
         self.log = logger or (lambda msg: None)
+        self.rescan_callback = rescan_callback
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -155,6 +157,21 @@ class BridgeServer:
                         payload = DecisionPayload.model_validate(self._body())
                         result = bridge.engine.apply_decision(payload)
                         return self._send(200 if result.get("ok") else 409, result)
+                    if method == "POST" and parts == ["rescan"]:
+                        pruned = bridge.engine.prune_missing_pending()
+                        enqueued = 0
+                        if bridge.rescan_callback is not None:
+                            try:
+                                enqueued = int(bridge.rescan_callback() or 0)
+                            except Exception as exc:
+                                bridge.log(f"[bridge] rescan_callback 失敗: {type(exc).__name__}: {exc}")
+                                enqueued = 0
+                        return self._send(200, {
+                            "ok": True,
+                            "pruned_missing": pruned,
+                            "enqueued": enqueued,
+                            "pending_count": len(bridge.store.list_pending()),
+                        })
                     if method == "POST" and parts == ["undo"]:
                         tx_id = self._body().get("tx_id") or None
                         with bridge.engine._lock:

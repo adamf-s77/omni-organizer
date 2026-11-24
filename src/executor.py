@@ -49,10 +49,10 @@ def safe_move_file(
     rule_id: str | None = None,
     on_conflict: str = "skip",
     file_hash: str | None = None,
+    allow_custom_dest: bool = False,
 ) -> dict:
-    """Move src into a whitelisted dest_dir, never overwriting, and journal for undo."""
+    """Move src into an allowed or user-selected safe dest_dir, never overwriting, and journal for undo."""
     src_p = Path(os.path.abspath(str(src)))
-    dest_p = Path(os.path.abspath(str(dest_dir)))
 
     if not src_p.is_file():
         return {"status": "error", "error": "source_missing", "src": str(src_p)}
@@ -61,8 +61,20 @@ def safe_move_file(
     if forbidden:
         return {"status": "blocked", "error": f"source_forbidden:{why}", "src": str(src_p)}
 
-    if not is_valid_destination(dest_p, settings.destinations, extra_forbidden=settings.protected_paths):
-        return {"status": "blocked", "error": "destination_not_whitelisted", "dst": str(dest_p)}
+    if allow_custom_dest:
+        raw_dest = str(dest_dir).strip().strip('"')
+        if not raw_dest or not os.path.isabs(raw_dest):
+            return {"status": "blocked", "error": "invalid_custom_destination", "dst": str(dest_dir)}
+        dest_p = Path(os.path.abspath(raw_dest))
+        dst_forbidden, dst_why = is_forbidden_path(dest_p, extra_forbidden=settings.protected_paths)
+        if dst_forbidden:
+            return {"status": "blocked", "error": f"destination_forbidden:{dst_why}", "dst": str(dest_p)}
+        if dest_p.exists() and not dest_p.is_dir():
+            return {"status": "error", "error": "destination_not_directory", "dst": str(dest_p)}
+    else:
+        dest_p = Path(os.path.abspath(str(dest_dir)))
+        if not is_valid_destination(dest_p, settings.destinations, extra_forbidden=settings.protected_paths):
+            return {"status": "blocked", "error": "destination_not_whitelisted", "dst": str(dest_p)}
 
     if _norm(src_p.parent) == _norm(dest_p):
         return {"status": "noop", "error": "already_in_destination", "src": str(src_p)}
